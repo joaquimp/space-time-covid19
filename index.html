@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html>
+<header>
+    <meta charset="utf-8">
+    <style>
+        body {
+            font-family: 'Open Sans', sans-serif;
+            font-size: 11px;
+            font-weight: 300;
+            /* fill: #242424; */
+            text-align: center;
+            text-shadow: 0 1px 0 #fff, 1px 0 0 #fff, -1px 0 0 #fff, 0 -1px 0 #fff;
+            cursor: default;
+        }
+
+        .states {
+            /* fill: none; */
+            stroke: black;
+            stroke-linejoin: round;
+        }
+
+        .button {
+            border-radius: 8px;
+        }
+
+        .play {
+            background-color: white;
+            color: black;
+            border: 2px solid #4CAF50;
+        }
+
+        .play:hover {
+            background-color: #4CAF50;
+            color: white;
+            border: 2px solid #4CAF50;
+        }
+
+        .disble {
+            background-color: white;
+            color: black;
+            border: 2px solid #e7e7e7;
+        }
+
+        .stop0 {
+            background-color: #f44336;
+            color: white;
+            border: 2px solid #f44336;
+        }
+
+        .stop1 {
+            background-color: #f48981;
+            color: white;
+            border: 2px solid #f48981;
+        }
+    </style>
+    <!-- Google fonts -->
+    <link href="https://fonts.googleapis.com/css?family=Open+Sans:400,300" rel='stylesheet' type='text/css'>
+    <link href='https://fonts.googleapis.com/css?family=Raleway' rel='stylesheet' type='text/css'>
+</header>
+
+<body>
+    <div>
+        <h1>Cartogram & Choropleth - Covid-19 no Brasil</h4>
+            <h3>Visualização de Dados</h5>
+                <hr />
+                <table style="text-align: left;">
+                    <tr>
+                        <td>Column:</td>
+                        <td>
+                            <select id="column"></select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>time interval</td>
+                        <td>
+                            <input type="number" max="5000" min="900" step="100" value="900" id="time_interval">
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Enable choropleth:</td>
+                        <td>
+                            <select id="choropleth">
+                                <option value="true" selected>yes</option>
+                                <option value="false">no</option>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Date:</td>
+                        <td id="date"></td>
+                    </tr>
+                    <tr>
+                        <td>Cmd: </td>
+                        <td>
+                            <button onclick="start()" id="btn_start">Start</button>
+                            <button onclick="stop()" id="btn_stop">Stop</button>
+                        </td>
+                        <td id="message">plaing</td>
+                    </tr>
+                </table>
+                <hr />
+
+                <svg id="map-container"></svg>
+                <br />
+                <hr />
+                <sub>
+                    Desenvolvido por Joaquim Pessôa Filho,<br />
+                    <b>Fonte:</b><a href="https://covid.saude.gov.br">https://covid.saude.gov.br</a>.
+                </sub>
+    </div>
+
+    <script src="https://d3js.org/d3.v3.min.js"></script>
+    <script src="https://d3js.org/topojson.v1.min.js"></script>
+    <script src="https://d3js.org/d3-color.v1.min.js"></script>
+    <script src="https://d3js.org/d3-interpolate.v1.min.js"></script>
+    <script src="https://d3js.org/d3-scale-chromatic.v1.min.js"></script>
+    <script src="cartogram.js"></script>
+    <script src="conversor.js"></script>
+    <script>
+
+        var originalData = null;
+        var width = 900, height = 750;
+        var time_interval = 100;
+        var play = false;
+        var count = 24;
+
+        // html Elements
+        const elemDate = document.getElementById('date');
+        const btnStart = document.getElementById('btn_start');
+        const btnStop = document.getElementById('btn_stop');
+        const inputTimer = document.getElementById('time_interval');
+        const inputColumn = document.getElementById('column');
+        const message = document.getElementById('message');
+
+        // Colors
+        const buttonColor = {
+            inactive: "crimson",
+            active: "darkgreen"
+        }
+
+        function stop() {
+            play = false;
+            count = 24;
+            btnStop.disabled = true;
+            btnStart.disabled = false;
+            inputTimer.disabled = false;
+            inputColumn.disabled = false;
+
+            elemDate.innerHTML = days[count];
+            message.innerHTML = "stoped";
+            btnStop.className = "button disable";
+            btnStart.className = "button play";
+        }
+
+        function start() {
+            if (play) stop();
+            message.innerHTML = "plaing";
+            btnStop.className = `button stop${count%2}`;
+            btnStart.className = "button disable";
+
+            play = true;
+            btnStop.disabled = false;
+            btnStart.disabled = true;
+            inputTimer.disabled = true;
+            inputColumn.disabled = true;
+
+            time_interval = inputTimer.value;
+
+            setTimeout(animete, time_interval);
+        }
+
+        function animete() {
+            if (!play) {
+                stop();
+                return;
+            }
+
+            btnStop.className = `button stop${count % 2}`;
+
+            if (count >= days.length) {
+                stop();
+                return;
+            }
+            day = days[count++];
+            elemDate.innerHTML = day;
+
+            update();
+            setTimeout(animete, time_interval);
+        }
+
+        var column = [
+            { key: 'Casos Acumulados', value: 'casosAcumulados' },
+            { key: 'Casos Novos', value: 'casosNovos' },
+            { key: 'Obitos Novos', value: 'obitosNovos' },
+            { key: 'Obitos Acumulados', value: 'obitosAcumulados' },
+        ];
+        var day = "2020-02-23";
+        var days = [];
+
+        var map = d3.select("#map-container")
+            .attr("id", "map")
+            .attr("width", width)
+            .attr("height", height);
+        var topo;
+
+        var edos = map.append("g")
+            .attr("id", "edos")
+            .selectAll("path");
+
+        var proj = d3.geo.mercator()
+            .center([-50, -8.5])
+            .scale(1000);
+
+        var carto = d3.cartogram()
+            .projection(proj)
+            .properties(function (d) {
+                return d.properties;
+            });
+
+        var topology, geometry;
+
+        function configure() {
+            originalData = originalData.map(function (row) {
+                row.estado = converterEstados(row.estado);
+                return row;
+            });
+
+            const dataDays = d3.nest()
+                .key(function (d) { return d.data; })
+                .entries(originalData);
+
+            days = dataDays.map(d => d.key);
+
+            d3.select("#column").selectAll("option")
+                .data(column)
+                .enter()
+                .append("option")
+                .text(function (d) { return d.key; })
+                .attr("value", function (d) { return d.value; });
+        }
+
+        function makeMap(data) {
+            topology = data;
+            geometries = data.objects.states.geometries;
+            var features = carto.features(data, geometries),
+                path = d3.geo.path()
+                    .projection(proj);
+
+
+
+            edos = edos.data(features)
+                .enter()
+                .append("path")
+                .attr("class", "states")
+                .attr("id", function (d) {
+                    return converterEstados(d.properties.name);
+                })
+                .attr("d", path);
+
+            update();
+            stop();
+        };
+
+        function update() {
+            // Filtrar por data
+            data = originalData.filter(d => d.data === day);
+
+            // Filtrar por coluna
+            column = inputColumn.value;
+            data = data.map(d => {
+                return {
+                    state: d.estado,
+                    value: d[column]
+                }
+            });
+            doUpdate();
+        }
+
+        function doUpdate() {
+
+            var data = originalData.filter(d => d.data === day);
+            data = data.map(d => {
+                return {
+                    state: d.estado,
+                    value: d[column]
+                }
+            });
+
+            var color = d3.scale.linear()
+                .domain([0, d3.max(data, d => +d.value)])
+                .range([0, 1]);
+
+
+            var scale = d3.scale.linear()
+                .domain([0, d3.max(data, d => +d.value)])
+                .range([1, 1000]);
+
+            carto.value(function (d) {
+                var dayData = data.find(x => x.state == d.properties.name);
+                return + scale(dayData.value)
+            });
+
+            var carto_features = carto(topology, geometries).features;
+            //actualiza el mapa
+            edos.data(carto_features);
+
+            edos.transition()
+                .duration(700)
+                .attr("d", carto.path);
+
+            if (document.getElementById('choropleth').value === 'true') {
+                data.forEach(d => {
+                    d3.select(`#${converterEstados(d.state)}`)
+                        .style('fill', d3.interpolateBlues(color(d.value)));
+                });
+            } else {
+                data.forEach(d => {
+                    d3.select(`#${converterEstados(d.state)}`)
+                        .style('fill', d3.interpolateBlues(0.1));
+                });
+            }
+        };
+
+        d3.dsv(';')("data.csv", function (error, data) {
+            originalData = data;
+            configure();
+            d3.json("br-states.json", function (mapData) {
+                makeMap(mapData)
+            });
+        });
+
+    </script>
+</body>
+
+</html>
